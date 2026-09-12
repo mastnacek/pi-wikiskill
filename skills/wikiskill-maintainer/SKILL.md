@@ -1,6 +1,6 @@
 ---
 name: wikiskill-maintainer
-description: Consolidate traces into the persistent wiki (WikiSkill).
+description: "Analyzovat stopy chyb i úspěchů agenta a konsolidovat je do trvalé wiki jako vzorce řešení (WikiSkill maintainer)."
 ---
 
 # Wiki Maintainer (WikiSkill)

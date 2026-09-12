@@ -1,6 +1,6 @@
 ---
 name: wikiskill-evolve
-description: "Run the WikiSkill self-evolution loop (arXiv 2608.27454) on a Hermes workspace — raw→maintainer→proposer→gate with strict R_val > R_best gating."
+description: "Spustit WikiSkill samo-evoluční smyčku (arXiv 2608.27454) na workspace — raw stopy → maintainer → proposer → striktní validační brána R_val > R_best."
 version: 1.0.0
 license: MIT
 platforms: [linux, macos, windows]

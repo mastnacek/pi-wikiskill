@@ -1,6 +1,6 @@
 ---
 name: wikiskill-proposer
-description: Propose skills from wiki patterns and traces (WikiSkill).
+description: "Navrhovat nové skilly nebo úpravy stávajících podle wiki vzorců a stop běhu v sandboxes (WikiSkill proposer)."
 ---
 
 # Skill Proposer (WikiSkill)

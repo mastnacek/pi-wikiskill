@@ -19,7 +19,7 @@ import {
   runEvolutionIteration,
 } from "./src/loop.js";
 import { loadTasks, setupTaskSandbox } from "./src/tasks.js";
-import { listWikiPatterns, appendLog } from "./src/wiki.js";
+import { listWikiPatterns, appendLog, ensureWiki } from "./src/wiki.js";
 import { listActiveSkills, exportSkillToGlobal } from "./src/gating.js";
 import { harvestSessionErrors, saveLearnedPattern } from "./src/session-learner.js";
 
@@ -444,22 +444,30 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // Register programmatic tools for LLM agent
+  // Programmatic tools for LLM agent
   pi.registerTool({
     name: "wikiskill_status",
     label: "WikiSkill Status",
-    description: "Zobrazit aktuální stav WikiSkill evolučního cyklu, nejlepší validační skóre R_best a seznam aktivních skillů.",
+    description:
+      "Zobrazit aktuální stav WikiSkill evolučního cyklu: nejlepší validační skóre R_best, počet iterací, seznam aktivních schválených skillů, odmítnuté návrhy a počet zaznamenaných wiki vzorců.",
     promptSnippet: "Získat přehled WikiSkill evoluce",
-    promptGuidelines: ["Use wikiskill_status to check current validation score and active skills."],
+    promptGuidelines: [
+      "Použij wikiskill_status pro kontrolu aktuálního validačního skóre, aktivních skillů a stavu evolučního cyklu.",
+    ],
     parameters: Type.Object({
-      domain: Type.Optional(Type.String({ description: "Název workspace domény" })),
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Název cílové workspace domény (např. 'demo', 'coding-bench'). Pokud není zadáno, použije se aktuálně aktivní workspace.",
+        })
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
       const wsDir = resolveWorkspaceDir(config, ctx.cwd, params?.domain);
       if (!fs.existsSync(wsDir)) {
         return {
-          content: [{ type: "text", text: `Workspace '${wsDir}' neexistuje.` }],
+          content: [{ type: "text", text: `Workspace '${wsDir}' neexistuje. Spusťte nejprve 'wikiskill_init'.` }],
           details: { error: "not_found" },
         };
       }
@@ -492,11 +500,19 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "wikiskill_init",
     label: "WikiSkill Init",
-    description: "Inicializovat nový WikiSkill workspace s automaticky generovaným benchmarkem úloh.",
+    description:
+      "Inicializovat nový WikiSkill workspace s automaticky vygenerovaným 22-úlohovým benchmarkem (train i val split), perzistentní wiki vrstvou a git-spravovaným úložištěm skillů.",
     promptSnippet: "Inicializovat WikiSkill workspace",
-    promptGuidelines: ["Use wikiskill_init to create an evolution workspace with benchmark tasks."],
+    promptGuidelines: [
+      "Použij wikiskill_init pro vytvoření nového evolučního workspace a přípravu testovacího benchmarku.",
+    ],
     parameters: Type.Object({
-      domain: Type.Optional(Type.String({ description: "Název domény (výchozí: demo)" })),
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Název vytvářeného workspace (např. 'demo', 'python-fixes'). Výchozí hodnota je 'demo'.",
+        })
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
@@ -507,7 +523,7 @@ export default function (pi: ExtensionAPI): void {
         content: [
           {
             type: "text",
-            text: `WikiSkill workspace '${domain}' byl vytvořen na cestě '${res.wsDir}' s ${res.tasksCount} benchmarkovými úlohami.`,
+            text: `WikiSkill workspace '${domain}' byl úspěšně vytvořen na cestě '${res.wsDir}' s ${res.tasksCount} benchmarkovými úlohami.`,
           },
         ],
         details: { wsDir: res.wsDir, tasksCount: res.tasksCount },
@@ -518,12 +534,25 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "wikiskill_evolve",
     label: "WikiSkill Evolve",
-    description: "Spustit WikiSkill evoluční smyčku (Raw traces -> Wiki maintainer -> Skill proposer -> Validation gating).",
+    description:
+      "Spustit WikiSkill evoluční smyčku podle Algoritmu 1 (Inference v sandboxu → Wiki Maintainer analýza stop → Skill Proposer návrh skillu → Validační brána s přísným pravidlem R_val > R_best).",
     promptSnippet: "Spustit evoluci skillů",
-    promptGuidelines: ["Use wikiskill_evolve to optimize and evolve skills through experience and gating."],
+    promptGuidelines: [
+      "Použij wikiskill_evolve pro spuštění evoluce skillů na základě nashromážděných zkušeností a chybových stop.",
+    ],
     parameters: Type.Object({
-      domain: Type.Optional(Type.String({ description: "Workspace doména" })),
-      iterations: Type.Optional(Type.Number({ description: "Počet iterací (výchozí: 1)" })),
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Název workspace domény, kde má evoluční cyklus probíhat (výchozí: aktivní workspace).",
+        })
+      ),
+      iterations: Type.Optional(
+        Type.Number({
+          description:
+            "Počet iterací evoluční smyčky, které se mají provést (výchozí: 1, doporučeno: 2 až 5 pro stabilní výsledky).",
+        })
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const config = loadConfig(ctx.cwd);
@@ -560,6 +589,166 @@ export default function (pi: ExtensionAPI): void {
           },
         ],
         details: { reports, bestScore: state.bestScore },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "wikiskill_run_task",
+    label: "WikiSkill Run Task",
+    description:
+      "Spustit jednu vybranou úlohu v izolovaném sandboxu s aktuálními aktivními skilly a vyhodnotit výsledek automatickým graderem.",
+    promptSnippet: "Spustit konkrétní task v sandboxu",
+    promptGuidelines: [
+      "Použij wikiskill_run_task pro ověření chování agenta na jedné vybrané benchmarkové úloze.",
+    ],
+    parameters: Type.Object({
+      taskId: Type.String({
+        description:
+          "Identifikátor úlohy k otestování (např. 'spec-format1-1', 'extract-logs-1', 'calc-even-sum-1').",
+      }),
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Název workspace domény obsahující benchmark (pokud není zadáno, použije se aktivní workspace).",
+        })
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const wsDir = resolveWorkspaceDir(config, ctx.cwd, params?.domain);
+      if (!fs.existsSync(wsDir)) {
+        return {
+          content: [{ type: "text", text: `Workspace '${wsDir}' neexistuje.` }],
+          details: { error: "not_found" },
+        };
+      }
+      const tasks = loadTasks(wsDir);
+      const task = tasks.find((t) => t.id === params.taskId);
+      if (!task) {
+        return {
+          content: [{ type: "text", text: `Úloha '${params.taskId}' nebyla v benchmarku nalezena.` }],
+          details: { error: "task_not_found" },
+        };
+      }
+      const res = await executeTask(wsDir, task, 0, resolveModelString(config.inferenceModel));
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Výsledek úlohy ${task.id} (${task.split}):\nSkóre: ${(res.score * 100).toFixed(1)}%\nDoba trvání: ${(res.durationMs / 1000).toFixed(1)}s\nVolání nástrojů: ${res.toolCalls}\nPodrobnosti: ${res.details || "-"}`,
+          },
+        ],
+        details: { runResult: res },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "wikiskill_learn_session",
+    label: "WikiSkill Learn Session",
+    description:
+      "Analyzovat chyby nástrojů, výjimky a opravné kroky z aktuální interaktivní konverzace a zapsat je jako trvalé vzorce do wiki vrstvy (wiki/patterns/).",
+    promptSnippet: "Zapsat zkušenosti z konverzace do wiki",
+    promptGuidelines: [
+      "Použij wikiskill_learn_session pro uložení poučení z chyb v aktuální session do znalostní báze wiki.",
+    ],
+    parameters: Type.Object({
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Cílový workspace, do jehož wiki vrstvy se mají nová poučení zapsat (výchozí: aktivní workspace).",
+        })
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const wsDir = resolveWorkspaceDir(config, ctx.cwd, params?.domain);
+      ensureWiki(wsDir);
+
+      if (!sessionCtx) {
+        return {
+          content: [{ type: "text", text: "Není k dispozici kontext aktivní session." }],
+          details: { error: "no_session" },
+        };
+      }
+
+      const entries = sessionCtx.sessionManager.getEntries();
+      const errors = harvestSessionErrors(entries);
+
+      if (errors.length === 0) {
+        return {
+          content: [{ type: "text", text: "V aktuálním sezení nebyly nalezeny žádné chyby nástrojů k extrakci." }],
+          details: { extracted: 0 },
+        };
+      }
+
+      const savedPatterns: string[] = [];
+      for (let i = 0; i < Math.min(errors.length, 3); i++) {
+        const err = errors[i];
+        const slug = `interactive-fix-${Date.now().toString(36)}-${i + 1}`;
+        const p = saveLearnedPattern(wsDir, {
+          title: `Chyba nástroje: ${err.tool}`,
+          slug,
+          problem: `Nástroj '${err.tool}' selhal s chybou.`,
+          rootCause: err.error,
+          fix: `Před voláním nástroje ověřit stav a vstupní parametry.`,
+          tags: ["session-learning", err.tool],
+        });
+        savedPatterns.push(p);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Z aktuální konverzace bylo destilováno ${savedPatterns.length} chybových vzorců do wiki/patterns/.`,
+          },
+        ],
+        details: { savedPatterns },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "wikiskill_export_skills",
+    label: "WikiSkill Export Skills",
+    description:
+      "Exportovat všechny schválené aktivní skilly z workspace do globální složky skillů Pi agenta (~/.pi/agent/skills/) pro okamžité použití ve všech budoucích sezeních.",
+    promptSnippet: "Exportovat schválené skilly do Pi",
+    promptGuidelines: [
+      "Použij wikiskill_export_skills pro přenos ověřených skillů do globálního profilu Pi agenta.",
+    ],
+    parameters: Type.Object({
+      domain: Type.Optional(
+        Type.String({
+          description:
+            "Název workspace domény, ze které se mají skilly exportovat (výchozí: aktivní workspace).",
+        })
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const config = loadConfig(ctx.cwd);
+      const wsDir = resolveWorkspaceDir(config, ctx.cwd, params?.domain);
+      const active = listActiveSkills(wsDir);
+      if (active.length === 0) {
+        return {
+          content: [{ type: "text", text: "Ve workspace se nenacházejí žádné aktivní skilly k exportu." }],
+          details: { exported: 0 },
+        };
+      }
+      const activeDir = path.join(wsDir, "skills", "active");
+      for (const s of active) {
+        exportSkillToGlobal(activeDir, s);
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Úspěšně exportováno ${active.length} skillů (${active.join(", ")}) do globálního adresáře ~/.pi/agent/skills/.`,
+          },
+        ],
+        details: { exportedSkills: active },
       };
     },
   });
