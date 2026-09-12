@@ -5,64 +5,57 @@ version: 1.0.0
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
-    tags: [wikiskill, evolution, skills, paper-implementation, hermes]
-    homepage: https://github.com/ashutoshsinghpr7/wikiskill
+  pi:
+    tags: [wikiskill, evolution, skills, paper-implementation, pi-agent, subagents]
+    homepage: https://github.com/mastnacek/pi-wikiskill
 ---
 
-# WikiSkill Evolve
+# WikiSkill Evolve (Pi Agent)
 
-Run Google's WikiSkill evolution loop (arXiv:2608.27454) — a faithful
-implementation with Hermes as the reference backend. The agent evolves its own
-skills: raw sessions → a maintainer distills failure patterns into a
-persistent wiki → a proposer writes a candidate skill → a validation gate
-accepts it **only if** `R_val > R_best` (git rollback otherwise).
+Spusťte samo-evoluční smyčku podle práce Google Research (arXiv:2608.27454) přímo v **Pi agentovi**.
+Agent se učí ze svých vlastních chyb: raw sessions → maintainer destiluje vzorce chyb a řešení do trvalé wiki → proposer navrhne kandidátní skill → validační brána jej přijme **pouze tehdy**, pokud $R_{val} > R_{best}$ (jinak následuje git rollback).
 
-## When to use
+## Kdy použít
 
-- You want an agent's own experience (traces) turned into reusable skills
-- You want to test whether a candidate skill actually helps, with statistics
-  instead of vibes
-- You're running the paper's protocol on your own tasks
+- Chcete, aby se agent ze svých chyb a zkušeností (stop) sám učil a vytvářel opakovaně použitelné `SKILL.md` balíčky.
+- Chcete ověřit, zda navržený skill reálně pomáhá na held-out validačních úlohách, místo pouhého odhadu.
+- Chcete trvalou znalostní bázi, která se nikdy neztratí ani po rollbacku nepovedeného skillu.
 
-## Install
+## Příkazy v Pi agentovi (`/wikiskill`)
 
-```bash
-pip install wikiskill          # Python ≥ 3.10; works with Hermes, Claude Code
+Plugin `pi-wikiskill` je plně integrován s příkazovou řádkou Pi:
+
+```text
+/wikiskill init <domain>          # Inicializace workspace a 22-úlohového benchmarku
+/wikiskill status                 # Zobrazení baseline, R_best, aktivních a odmítnutých skillů
+/wikiskill evolve [iters]         # Spuštění evoluční smyčky (train → maintain → propose → gate)
+/wikiskill model                  # Výběr modelu pro role (inference, maintainer, proposer)
+/wikiskill bench                  # Samostatné vyhodnocení na validační sadě
+/wikiskill run-task <id>          # Spuštění konkrétní úlohy v sandboxu pro ladění
+/wikiskill learn-session          # Extrakce chyb z aktuální konverzace do wiki
+/wikiskill export                 # Export schválených skillů do ~/.pi/agent/skills/
 ```
 
-## Run the loop
+## Programatické nástroje pro Pi Agenta
 
-```bash
-wikiskill init myws                        # workspace + auto-graded bench
-wikiskill evolve myws --iters 3            # train → maintain → propose → gate
-wikiskill status myws                      # baseline, r_best, skill state
-wikiskill compare wsA wsB --iters 5        # paired exact-binomial comparison
-wikiskill transfer src dst                 # copy accepted skills to another ws
-```
+V konverzaci může agent přímo volat:
+- `wikiskill_init(domain)` — vytvoření nového evolučního workspace.
+- `wikiskill_status(domain)` — kontrola stavu evoluce, $R_{best}$ a zaznamenaných vzorců.
+- `wikiskill_evolve(domain, iterations)` — spuštění samo-evolučního cyklu.
+- `wikiskill_run_task(taskId, domain)` — otestování jedné úlohy v sandboxu.
+- `wikiskill_learn_session(domain)` — zápis ponaučení z aktuální session do wiki.
+- `wikiskill_export_skills(domain)` — přenos ověřených skillů do globálního profilu.
 
-## Reading the output
+## Struktura workspace (`workspaces/<domain>/`)
 
-- `runs/state.json` — `baseline` (S₀ on val), `r_best`, `next_iter`
-- `wiki/log.md` — every maintenance/proposal/gate decision with evidence
-- `wiki/patterns/` — distilled failure patterns (the raw material)
-- `wiki/skill-impact.md` — rejected proposals stay visible (paper requirement)
-- Gate verdicts: `ACCEPTED` (R_val > R_best, git commit), `REJECTED`
-  (rolled back), `no_action` (proposer declined — a valid outcome)
+- `runs/state.json` — $R_{best}$, dokončené iterace, historie.
+- `wiki/log.md` — rozhodnutí maintainera, proposera a validační brány.
+- `wiki/patterns/` — zkompilované vzorce řešení a návody (trvalé, nerollbackují se).
+- `wiki/skill-impact.md` — přehled schválených i odmítnutých návrhů (včetně důvodů).
+- `skills/active/` — git-spravované produkční skilly v otevřeném formátu `SKILL.md`.
 
-## Backends
+## Výsledky validační brány
 
-```bash
-wikiskill init myws --backend claude       # Claude Code as the worker
-```
-
-Hermes is the reference backend; Claude Code ships in the box; codex/opencode
-are on the roadmap. All speak open SKILL.md, so evolved skills transfer.
-
-## Honest-expectation notes
-
-- Each iteration costs ~$0.09 on free-tier models (gemini-lite class) —
-  turn budgets and `--max-turns` bound the spend
-- A weak model may produce `no_action` iterations — that's the gate working,
-  not a failure; skill accumulation needs a reasonably strong proposer
-- The gate has rejected harmful skills in live runs — a rejection is a win
+- **ACCEPTED**: $R_{val} > R_{best}$ $\rightarrow$ git commit do `skills/active/`, zvýšení $R_{best}$, export do Pi profilu.
+- **REJECTED**: $R_{val} \le R_{best}$ $\rightarrow$ git rollback (`git reset --hard`), zaznamenání do `wiki/skill-impact.md`.
+- **NO_ACTION**: Proposer usoudil, že není potřeba žádná úprava (platný stav).
