@@ -1,0 +1,52 @@
+{
+  "name": "pi-wikiskill",
+  "version": "0.1.0",
+  "description": "WikiSkill self-evolution loop for the Pi coding agent — compiles agent experience into a persistent wiki and evolves skills with strict validation gating",
+  "main": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "author": "Solo Sith Lord",
+  "license": "MIT",
+  "homepage": "https://github.com/mastnacek/pi-wikiskill#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mastnacek/pi-wikiskill.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "wikiskill",
+    "self-evolution",
+    "skills",
+    "benchmarking",
+    "learning-loop",
+    "subagents"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dependencies": {
+    "typebox": "^1.3.19"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.80.0",
+    "@earendil-works/pi-coding-agent": ">=0.80.0",
+    "@earendil-works/pi-tui": ">=0.80.0"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --test"
+  }
+}
