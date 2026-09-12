@@ -9,7 +9,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import type { WikiSkillConfig, WorkspaceState, Task } from "./src/types.js";
-import { loadConfig, saveConfig, DEFAULT_CONFIG, getAgentDir } from "./src/config.js";
+import { loadConfig, saveConfig, DEFAULT_CONFIG, getAgentDir, resolveWorkspaceDir } from "./src/config.js";
 import { getAvailableModels, resolveModelString } from "./src/model-selector.js";
 import {
   initWorkspace,
@@ -22,6 +22,7 @@ import { loadTasks, setupTaskSandbox } from "./src/tasks.js";
 import { listWikiPatterns, appendLog, ensureWiki } from "./src/wiki.js";
 import { listActiveSkills, exportSkillToGlobal } from "./src/gating.js";
 import { harvestSessionErrors, saveLearnedPattern } from "./src/session-learner.js";
+import { updateWikiSkillStatus, clearWikiSkillStatus } from "./src/statusline.js";
 
 const SUBCOMMANDS: AutocompleteItem[] = [
   {
@@ -69,18 +70,23 @@ const SUBCOMMANDS: AutocompleteItem[] = [
     label: "help",
     description: "Zobrazit podrobnou nápovědu a vysvětlení algoritmu WikiSkill",
   },
+  {
+    value: "statusline",
+    label: "statusline [on|off]",
+    description: "Zapnout nebo vypnout WikiSkill indikátor ve statusline",
+  },
 ];
-
-function resolveWorkspaceDir(config: WikiSkillConfig, cwd: string, overrideDomain?: string): string {
-  const domain = overrideDomain || config.activeWorkspace || "demo";
-  return path.join(cwd, config.workspacesDir || "workspaces", domain);
-}
 
 export default function (pi: ExtensionAPI): void {
   let sessionCtx: ExtensionContext | undefined;
 
   pi.on("session_start", (_event, ctx) => {
     sessionCtx = ctx;
+    updateWikiSkillStatus(ctx);
+  });
+
+  pi.on("turn_end", (_event, ctx) => {
+    updateWikiSkillStatus(ctx);
   });
 
   // Register /wikiskill command
@@ -194,6 +200,7 @@ export default function (pi: ExtensionAPI): void {
             "  /wikiskill run-task <id>        - Spustit konkrétní task v sandboxu pro ladění",
             "  /wikiskill learn-session        - Analyzovat chyby z aktuální konverzace do wiki",
             "  /wikiskill export               - Zkopírovat schválené skilly do ~/.pi/agent/skills/",
+            "  /wikiskill statusline [on|off]  - Zapnout nebo vypnout indikátor ve statusline",
           ];
           ctx.ui.notify(lines.join("\n"), "info");
           break;
@@ -204,6 +211,7 @@ export default function (pi: ExtensionAPI): void {
           const targetWs = resolveWorkspaceDir(config, ctx.cwd, domain);
           const res = initWorkspace(targetWs);
           saveConfig({ activeWorkspace: domain }, true, ctx.cwd);
+          updateWikiSkillStatus(ctx);
           ctx.ui.notify(
             `Workspace inicializován: ${res.wsDir}\nVygenerováno úloh v benchmarku: ${res.tasksCount} (train/val)`,
             "info"
@@ -316,12 +324,17 @@ export default function (pi: ExtensionAPI): void {
             `Spouštím evoluční smyčku WikiSkill (${itersCount} iterac${itersCount === 1 ? "e" : "í"})...\nWorkspace: ${wsDir}`,
             "info"
           );
+          updateWikiSkillStatus(ctx, `⟳ evoluce 1/${itersCount}...`);
 
           for (let i = 1; i <= itersCount; i++) {
             const nextIter = state.currentIter + 1;
-            const report = await runEvolutionIteration(wsDir, nextIter, config, tasks, state, {
+            updateWikiSkillStatus(ctx, `⟳ iter ${i}/${itersCount}...`);
+            const _report = await runEvolutionIteration(wsDir, nextIter, config, tasks, state, {
               onMessage: (msg) => ctx.ui.notify(msg, "info"),
-              onProgress: (status) => ctx.ui.notify(status, "info"),
+              onProgress: (status) => {
+                ctx.ui.notify(status, "info");
+                updateWikiSkillStatus(ctx, `⟳ ${i}/${itersCount} (${status.slice(0, 18)})`);
+              },
             });
 
             if (state.bestScore >= 1.0) {
@@ -329,6 +342,7 @@ export default function (pi: ExtensionAPI): void {
               break;
             }
           }
+          updateWikiSkillStatus(ctx);
           break;
         }
 
@@ -339,6 +353,7 @@ export default function (pi: ExtensionAPI): void {
           }
           const tasks = loadTasks(wsDir);
           ctx.ui.notify("Spouštím validační sadu (benchmark)...", "info");
+          updateWikiSkillStatus(ctx, "⟳ benching...");
           const evalRes = await evaluateSplit(
             wsDir,
             tasks,
@@ -350,6 +365,7 @@ export default function (pi: ExtensionAPI): void {
             `Validační výsledek: ${(evalRes.avgScore * 100).toFixed(1)}% (${evalRes.results.filter((r) => r.score >= 1.0).length}/${evalRes.results.length} splněno)`,
             "info"
           );
+          updateWikiSkillStatus(ctx);
           break;
         }
 
@@ -415,6 +431,32 @@ export default function (pi: ExtensionAPI): void {
           }
 
           ctx.ui.notify(`Zkušenosti z konverzace byly úspěšně zapsány do wiki/patterns/.`, "info");
+          updateWikiSkillStatus(ctx);
+          break;
+        }
+
+        case "statusline": {
+          const action = tokens[1]?.toLowerCase();
+          if (action === "on") {
+            saveConfig({ statusline: true }, false, ctx.cwd);
+            updateWikiSkillStatus(ctx);
+            ctx.ui.notify("WikiSkill statusline indikátor zapnut.", "info");
+          } else if (action === "off") {
+            saveConfig({ statusline: false }, false, ctx.cwd);
+            clearWikiSkillStatus(ctx);
+            ctx.ui.notify("WikiSkill statusline indikátor vypnut.", "info");
+          } else {
+            const current = config.statusline !== false;
+            const next = !current;
+            saveConfig({ statusline: next }, false, ctx.cwd);
+            if (next) {
+              updateWikiSkillStatus(ctx);
+              ctx.ui.notify("WikiSkill statusline indikátor zapnut.", "info");
+            } else {
+              clearWikiSkillStatus(ctx);
+              ctx.ui.notify("WikiSkill statusline indikátor vypnut.", "info");
+            }
+          }
           break;
         }
 
@@ -519,6 +561,7 @@ export default function (pi: ExtensionAPI): void {
       const domain = params?.domain || "demo";
       const wsDir = resolveWorkspaceDir(config, ctx.cwd, domain);
       const res = initWorkspace(wsDir);
+      updateWikiSkillStatus(ctx);
       return {
         content: [
           {
@@ -565,12 +608,17 @@ export default function (pi: ExtensionAPI): void {
       const iters = params?.iterations || 1;
       const reports = [];
 
+      updateWikiSkillStatus(ctx, `⟳ evoluce 1/${iters}...`);
+
       for (let i = 1; i <= iters; i++) {
         const nextIter = state.currentIter + 1;
+        updateWikiSkillStatus(ctx, `⟳ iter ${i}/${iters}...`);
         const report = await runEvolutionIteration(wsDir, nextIter, config, tasks, state);
         reports.push(report);
         if (state.bestScore >= 1.0) break;
       }
+
+      updateWikiSkillStatus(ctx);
 
       return {
         content: [
@@ -697,6 +745,8 @@ export default function (pi: ExtensionAPI): void {
         });
         savedPatterns.push(p);
       }
+
+      updateWikiSkillStatus(ctx);
 
       return {
         content: [

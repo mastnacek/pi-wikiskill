@@ -12,7 +12,13 @@ export const DEFAULT_CONFIG: WikiSkillConfig = {
   defaultIters: 3,
   maxTurns: 15,
   exportToGlobalSkills: true,
+  statusline: true,
 };
+
+export function resolveWorkspaceDir(config: WikiSkillConfig, cwd: string, overrideDomain?: string): string {
+  const domain = overrideDomain || config.activeWorkspace || "demo";
+  return path.join(cwd, config.workspacesDir || "workspaces", domain);
+}
 
 export function getAgentDir(): string {
   return (

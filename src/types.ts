@@ -55,6 +55,7 @@ export interface WikiSkillConfig {
   defaultIters: number;
   maxTurns: number;
   exportToGlobalSkills: boolean;
+  statusline?: boolean;
 }
 
 export interface WorkspaceState {

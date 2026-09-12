@@ -21,7 +21,7 @@ workspaces/<domain>/
 
 ## Co to je a proč to potřebujete?
 
-Při řešení komplexních úkolů se agent často setká s chybami nástrojů, sandboxu a logiky. Běžně se však při ukončení sezení všechna tato ponaučení ztratí. 
+Při řešení komplexních úkolů se agent často setká s chybami nástrojů, sandboxu a logiky. Běžně se však při ukončení sezení všechna tato ponaučení ztratí.
 
 **`pi-wikiskill`** implementuje třívrstvou architekturu a uzavřenou samo-evoluční smyčku (**Algoritmus 1**):
 
@@ -64,6 +64,7 @@ Plugin nabízí interaktivní **lazy menu** při psaní v příkazovém řádku 
 | `/wikiskill run-task <id>` | Spustí konkrétní úlohu v sandboxu pro vizuální ladění a kontrolu výstupu graderu. |
 | `/wikiskill learn-session` | **Interaktivní učení:** Analyzuje chyby nástrojů z aktuální Pi konverzace a zapíše nová poučení do wiki. |
 | `/wikiskill export` | Exportuje všechny schválené aktivní skilly do globální složky `~/.pi/agent/skills/`. |
+| `/wikiskill statusline [on\|off]` | Zapne, vypne nebo přepne zobrazování stavu WikiSkill ve statusline (footeru). |
 | `/wikiskill help` | Zobrazí souhrnnou nápovědu a přehled. |
 
 ---
@@ -71,15 +72,19 @@ Plugin nabízí interaktivní **lazy menu** při psaní v příkazovém řádku 
 ## 🎛️ Konfigurace modelů a rolí
 
 WikiSkill profituje ze specializovaných modelů pro jednotlivé role:
+
 - **`inference`**: Rychlý a ekonomický model pro testování sandboxing úloh (např. `google/gemini-3.5-flash-lite`).
 - **`maintainer`**: Model s velkým kontextem a přesnou syntézou pro analýzu stop chyb.
 - **`proposer`**: High-reasoning model (s podporou myšlení/CoT) pro návrh striktních instrukcí ve formátu `SKILL.md`.
 
 Modely lze nastavit interaktivně přes menu:
+
 ```text
 /wikiskill model
 ```
+
 Nebo přímo v příkazu:
+
 ```bash
 /wikiskill model inference openrouter/google/gemini-3.5-flash-lite
 /wikiskill model maintainer openrouter/google/gemini-3.8-flash
@@ -92,6 +97,7 @@ Nebo přímo v příkazu:
 ## 🛠️ Nástroje pro LLM Agenta
 
 Pokud je plugin aktivní, hlavní Pi agent má k dispozici programatické nástroje:
+
 - **`wikiskill_status`** — zjištění aktuálního stavu evoluce a skóre.
 - **`wikiskill_init`** — inicializace nového evolučního workspace.
 - **`wikiskill_evolve`** — spuštění evolučních cyklů.
@@ -101,6 +107,7 @@ Pokud je plugin aktivní, hlavní Pi agent má k dispozici programatické nástr
 ## 🔬 Auto-gradery benchmarku
 
 Úlohy v `bench/tasks.json` podporují deterministické gradery:
+
 - `exact`: Whitespace-normalizovaná přesná shoda se souborem.
 - `contains`: Ověření přítomnosti podřetězce v deliverable souboru.
 - `json_field`: Kontrola hodnoty vnořeného pole JSON souboru.
